@@ -179,4 +179,8 @@ elif mode == "✍️ Spelling Quiz":
 
     # If the user answered correctly, show the success message and the Next button
     else:
-        st.success(f
+        st.success(f"🎉 Correct! The word is **{current_word['word']}**.")
+        if st.button("➡️ Next Word"):
+            st.session_state.word_index += 1
+            st.session_state.quiz_complete = False # Reset flag for next word
+            st.rerun()
