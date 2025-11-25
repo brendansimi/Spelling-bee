@@ -1,12 +1,19 @@
 import streamlit as st
-from gtts import gTTS
 import io
 import random
+import time
+
+# --- SAFETY CHECK FOR AUDIO ---
+# This prevents the app from crashing if gTTS isn't installed yet
+try:
+    from gtts import gTTS
+    has_audio = True
+except ImportError:
+    has_audio = False
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="3rd Grade Spelling Bee", page_icon="🐝")
 
-# --- CUSTOM CSS FOR KID-FRIENDLY UI ---
 st.markdown("""
     <style>
     .big-font { font-size:30px !important; color: #E07A5F; font-weight: bold; }
@@ -15,8 +22,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- ORIGINAL WORD DATA ---
-# [span_0](start_span)[span_1](start_span)[span_2](start_span)[span_3](start_span)Sourced from the provided One Bee Study Words[span_0](end_span)[span_1](end_span)[span_2](end_span)[span_3](end_span)
+# --- WORD LIST ---
 original_words = [
     {"word": "unicorn", "type": "noun", "def": "An imaginary animal with a horse body and single horn."},
     {"word": "faraway", "type": "adjective", "def": "Distant in space."},
@@ -70,105 +76,107 @@ original_words = [
     {"word": "especially", "type": "adverb", "def": "In particular."},
 ]
 
-# --- SESSION STATE INITIALIZATION ---
-# This ensures the word list stays consistent until we decide to shuffle
+# --- SESSION STATE SETUP ---
 if 'word_list' not in st.session_state:
     st.session_state.word_list = original_words.copy()
-
 if 'word_index' not in st.session_state:
     st.session_state.word_index = 0
-
 if 'score' not in st.session_state:
     st.session_state.score = 0
+if 'quiz_complete' not in st.session_state:
+    st.session_state.quiz_complete = False  # Tracks if the current word was answered correctly
 
-# --- FUNCTIONS ---
+# --- AUDIO FUNCTION ---
 def text_to_speech(text):
-    tts = gTTS(text=text, lang='en')
-    fp = io.BytesIO()
-    tts.write_to_fp(fp)
-    return fp
+    if not has_audio:
+        return None
+    try:
+        tts = gTTS(text=text, lang='en')
+        fp = io.BytesIO()
+        tts.write_to_fp(fp)
+        return fp
+    except:
+        return None
 
-def shuffle_words():
-    random.shuffle(st.session_state.word_list)
-    st.session_state.word_index = 0  # Restart from the first word of the new list
-    st.session_state.score = 0       # Optional: Reset score on shuffle
-
-# --- SIDEBAR NAVIGATION ---
+# --- SIDEBAR ---
 st.sidebar.title("🐝 Spelling Bee App")
 mode = st.sidebar.radio("Choose a Mode:", ["📖 Study Words", "✍️ Spelling Quiz"])
+st.sidebar.write("---")
 
-st.sidebar.markdown("---")
-st.sidebar.write("### Options")
 if st.sidebar.button("🔀 Shuffle Words"):
-    shuffle_words()
+    random.shuffle(st.session_state.word_list)
+    st.session_state.word_index = 0
+    st.session_state.quiz_complete = False
     st.sidebar.success("Words shuffled!")
 
-if st.sidebar.button("🔄 Reset Order"):
-    st.session_state.word_list = original_words.copy()
+# --- MAIN LOGIC ---
+# Safety check for index range
+if st.session_state.word_index >= len(st.session_state.word_list):
     st.session_state.word_index = 0
-    st.sidebar.info("Reset to original order (1-50).")
 
-# --- MAIN CONTENT ---
 current_word = st.session_state.word_list[st.session_state.word_index]
 
-# --- STUDY MODE ---
+# --- MODE: STUDY ---
 if mode == "📖 Study Words":
     st.title("📖 Let's Learn!")
     st.write(f"Word {st.session_state.word_index + 1} of {len(st.session_state.word_list)}")
     
-    # Display Word info
     st.markdown(f'<p class="big-font">{current_word["word"]}</p>', unsafe_allow_html=True)
     st.markdown(f"**Part of Speech:** *{current_word['type']}*")
     st.info(f"**Definition:** {current_word['def']}")
 
-    # Audio Button
     if st.button("🔊 Play Sound"):
-        sound_file = text_to_speech(current_word["word"])
-        st.audio(sound_file, format='audio/mp3')
+        sound = text_to_speech(current_word["word"])
+        if sound:
+            st.audio(sound, format='audio/mp3')
+        else:
+            st.warning("Audio not available (check requirements.txt).")
 
     st.markdown("---")
-    # Navigation buttons
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col1:
+    c1, c2 = st.columns([1, 1])
+    with c1:
         if st.button("⬅️ Previous"):
             st.session_state.word_index = max(0, st.session_state.word_index - 1)
             st.rerun()
-    with col3:
+    with c2:
         if st.button("Next ➡️"):
             st.session_state.word_index = min(len(st.session_state.word_list) - 1, st.session_state.word_index + 1)
             st.rerun()
 
-# --- QUIZ MODE ---
+# --- MODE: QUIZ ---
 elif mode == "✍️ Spelling Quiz":
     st.title("✍️ Spelling Quiz")
-    st.write(f"**Current Score:** {st.session_state.score} ⭐")
-    st.progress((st.session_state.word_index) / len(st.session_state.word_list))
+    st.write(f"**Score:** {st.session_state.score} ⭐")
+    
+    # Progress bar
+    progress = (st.session_state.word_index) / len(st.session_state.word_list)
+    st.progress(progress)
 
     st.markdown(f"### Word #{st.session_state.word_index + 1}")
-    st.write("Listen to the word and read the definition. Then type it below!")
-    
-    # Definition and Audio
     st.info(f"**Definition:** {current_word['def']}")
+    
     if st.button("🔊 Hear Word"):
-        sound_file = text_to_speech(current_word["word"])
-        st.audio(sound_file, format='audio/mp3')
-
-    # Input
-    user_spelling = st.text_input("Type the word here:", key=f"input_{st.session_state.word_index}")
-
-    if st.button("Check Spelling ✅"):
-        if user_spelling.strip().lower() == current_word["word"].lower():
-            st.success(f"🎉 Correct! The word is **{current_word['word']}**.")
-            st.balloons()
-            # Next Word Button
-            if st.button("Next Word ➡️"):
-                 st.session_state.score += 1
-                 st.session_state.word_index = min(len(st.session_state.word_list) - 1, st.session_state.word_index + 1)
-                 st.rerun()
+        sound = text_to_speech(current_word["word"])
+        if sound:
+            st.audio(sound, format='audio/mp3')
         else:
-            st.error("Not quite! Try again.")
-            # Progressive Hint System
-            first_letter = current_word['word'][0]
-            last_letter = current_word['word'][-1]
-            st.warning(f"Hint: It starts with '{first_letter}' and ends with '{last_letter}'.")
+            st.warning("Audio not available.")
 
+    # If the user hasn't answered correctly yet, show the input box
+    if not st.session_state.quiz_complete:
+        user_spelling = st.text_input("Type the word here:", key=f"input_{st.session_state.word_index}")
+        
+        if st.button("Check Spelling ✅"):
+            if user_spelling.strip().lower() == current_word["word"].lower():
+                st.balloons()
+                st.success(f"🎉 Correct! The word is **{current_word['word']}**.")
+                st.session_state.score += 1
+                st.session_state.quiz_complete = True # Set flag to show Next button
+                st.rerun()
+            else:
+                st.error("Not quite! Try again.")
+                st.write(f"Hint: Starts with **{current_word['word'][0]}** and ends with **{current_word['word'][-1]}**.")
+
+    # If the user answered correctly, show the success message and the Next button
+    else:
+        st.success(f
